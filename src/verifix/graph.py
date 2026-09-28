@@ -1,21 +1,12 @@
-"""LangGraph pipeline for Verifix. Planner and Coder are stubs until Phase 3."""
+"""LangGraph pipeline for Verifix. The Reflector is a stub until the next step."""
 
 from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
+from verifix.agents import coder, planner
 from verifix.sandbox import run_pytest
 from verifix.state import AgentState
-
-
-def planner(state: AgentState) -> dict:
-    print("[planner] reading target file")
-    return {"code_content": "# stub: file contents", "plan": "stub plan"}
-
-
-def coder(state: AgentState) -> dict:
-    print(f"[coder] attempt {state['retries'] + 1}")
-    return {"code_content": state["code_content"] + "\n# stub patch"}
 
 
 def executor(state: AgentState) -> dict:
