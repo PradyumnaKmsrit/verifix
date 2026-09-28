@@ -1,7 +1,10 @@
-"""LangGraph skeleton for Verifix. Nodes are stubs until later phases."""
+"""LangGraph pipeline for Verifix. Planner and Coder are stubs until Phase 3."""
+
+from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
+from verifix.sandbox import run_pytest
 from verifix.state import AgentState
 
 
@@ -16,13 +19,10 @@ def coder(state: AgentState) -> dict:
 
 
 def executor(state: AgentState) -> dict:
-    # Stub: fail on the first attempt, pass on the second.
-    passed = state["retries"] >= 1
-    print(f"[executor] tests_passed={passed}")
-    return {
-        "tests_passed": passed,
-        "execution_logs": "stub: all passed" if passed else "stub: 1 failed",
-    }
+    workspace = str(Path(state["file_path"]).parent)
+    result = run_pytest(workspace)
+    print(f"[executor] tests_passed={result.passed} exit_code={result.exit_code}")
+    return {"tests_passed": result.passed, "execution_logs": result.logs}
 
 
 def reflector(state: AgentState) -> dict:
