@@ -1,0 +1,28 @@
+[project]
+name = "verifix"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Pradyumna", email = "pradyumnakushatgi@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "docker>=7.2.0",
+    "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.12",
+    "pydantic>=2.13.5",
+]
+
+[project.scripts]
+verifix = "verifix:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
