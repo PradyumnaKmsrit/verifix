@@ -1,4 +1,4 @@
-"""Verifix agents. Planner gathers context, Coder proposes a fix via the LLM."""
+"""Verifix agents: Planner gathers context, Coder proposes a fix, Reflector diagnoses."""
 
 import ast
 import re
@@ -8,6 +8,7 @@ from verifix.llm import get_llm
 from verifix.state import AgentState
 
 FENCE = "`" * 3
+MAX_LOG_CHARS = 3000
 
 CODER_SYSTEM = (
     "You are a careful Python engineer. Fix the bug in the given source file "
@@ -16,9 +17,21 @@ CODER_SYSTEM = (
     "Do not include the tests, other files, or any explanation."
 )
 
+REFLECTOR_SYSTEM = (
+    "You are a debugging assistant. You are given a Python source file, its "
+    "tests, and the failing test output. In two or three sentences, explain the "
+    "root cause of the failure and what change would fix it. "
+    "Do not write code blocks or the full corrected file."
+)
+
 
 def _block(text: str) -> str:
     return f"{FENCE}python\n{text}\n{FENCE}"
+
+
+def _tail(text: str, limit: int = MAX_LOG_CHARS) -> str:
+    """Keep only the end of a long log, where pytest prints the failures."""
+    return text if len(text) <= limit else "...\n" + text[-limit:]
 
 
 def _collect_tests(workspace: Path, module: str) -> str:
@@ -74,7 +87,7 @@ def coder(state: AgentState) -> dict:
         _collect_tests(path.parent, path.stem),
     ]
     if state["execution_logs"]:
-        parts.append(f"Output of the last test run:\n{state['execution_logs']}")
+        parts.append(f"Output of the last test run:\n{_tail(state['execution_logs'])}")
     if state["diagnosis"]:
         parts.append(f"Diagnosis of the last failure:\n{state['diagnosis']}")
 
@@ -85,3 +98,17 @@ def coder(state: AgentState) -> dict:
     new_code = strip_echoed_tests(extract_code(reply.content), path.stem)
     path.write_text(new_code, encoding="utf-8")
     return {"code_content": new_code}
+
+
+def reflector(state: AgentState) -> dict:
+    path = Path(state["file_path"])
+    prompt = "\n\n".join(
+        [
+            f"Source file ({path.name}):\n{_block(state['code_content'])}",
+            _collect_tests(path.parent, path.stem),
+            f"Failing test output:\n{_tail(state['execution_logs'])}",
+        ]
+    )
+    print("[reflector] analysing failure")
+    reply = get_llm().invoke([("system", REFLECTOR_SYSTEM), ("human", prompt)])
+    return {"diagnosis": reply.content.strip(), "retries": state["retries"] + 1}
