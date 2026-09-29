@@ -13,6 +13,8 @@ class AgentState(TypedDict):
     diagnosis: str
     retries: int
     max_retries: int
+    seen_failures: list[str]
+    stuck: bool
 
 
 def initial_state(
@@ -29,4 +31,6 @@ def initial_state(
         diagnosis="",
         retries=0,
         max_retries=max_retries,
+        seen_failures=[],
+        stuck=False,
     )

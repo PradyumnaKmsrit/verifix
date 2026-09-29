@@ -102,13 +102,20 @@ def coder(state: AgentState) -> dict:
 
 def reflector(state: AgentState) -> dict:
     path = Path(state["file_path"])
+    stuck_note = (
+        "\n\nNote: your previous suggestion did not change the outcome. "
+        "The failure is identical to a prior attempt. Propose a genuinely "
+        "different approach, not a small variation of the last one."
+        if state["stuck"]
+        else ""
+    )
     prompt = "\n\n".join(
         [
             f"Source file ({path.name}):\n{_block(state['code_content'])}",
             _collect_tests(path.parent, path.stem),
-            f"Failing test output:\n{_tail(state['execution_logs'])}",
+            f"Failing test output:\n{_tail(state['execution_logs'])}{stuck_note}",
         ]
     )
-    print("[reflector] analysing failure")
+    print("[reflector] analysing failure" + (" (stuck, forcing replan)" if state["stuck"] else ""))
     reply = get_llm().invoke([("system", REFLECTOR_SYSTEM), ("human", prompt)])
     return {"diagnosis": reply.content.strip(), "retries": state["retries"] + 1}

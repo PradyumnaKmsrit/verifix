@@ -1,5 +1,6 @@
 """LangGraph pipeline for Verifix: planner -> coder -> executor -> reflector loop."""
 
+import re
 from pathlib import Path
 
 from langgraph.graph import END, StateGraph
@@ -9,11 +10,31 @@ from verifix.sandbox import run_pytest
 from verifix.state import AgentState
 
 
+def _signature(logs: str) -> str:
+    """Reduce pytest output to its failing assertion lines, ignoring noise like timings."""
+    lines = [line for line in logs.splitlines() if line.startswith(("E ", "FAILED"))]
+    return "\n".join(lines) or logs.strip()
+
+
 def executor(state: AgentState) -> dict:
     workspace = str(Path(state["file_path"]).parent)
     result = run_pytest(workspace)
     print(f"[executor] tests_passed={result.passed} exit_code={result.exit_code}")
-    return {"tests_passed": result.passed, "execution_logs": result.logs}
+
+    if result.passed:
+        return {"tests_passed": True, "execution_logs": result.logs}
+
+    sig = _signature(result.logs)
+    seen = state["seen_failures"]
+    stuck = sig in seen
+    if stuck:
+        print("[executor] same failure as a previous attempt, flagging as stuck")
+    return {
+        "tests_passed": False,
+        "execution_logs": result.logs,
+        "seen_failures": seen + [sig],
+        "stuck": stuck,
+    }
 
 
 def after_executor(state: AgentState) -> str:
