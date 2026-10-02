@@ -15,6 +15,7 @@ class AgentState(TypedDict):
     max_retries: int
     seen_failures: list[str]
     stuck: bool
+    related_files: list[str]
 
 
 def initial_state(
@@ -33,4 +34,5 @@ def initial_state(
         max_retries=max_retries,
         seen_failures=[],
         stuck=False,
+        related_files=[],
     )

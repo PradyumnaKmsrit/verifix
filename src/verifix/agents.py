@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from verifix.llm import get_llm
+from verifix.search import grep
 from verifix.state import AgentState
 
 FENCE = "`" * 3
@@ -81,11 +82,31 @@ def strip_echoed_tests(code: str, module: str) -> str:
     return cleaned + "\n" if cleaned else code
 
 
+def _find_related_files(root: Path, target: Path, task: str, limit: int = 2) -> list[str]:
+    """Grep for function/class names mentioned in the task to find related files."""
+    names = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b", task)
+    found: list[str] = []
+    for name in names:
+        for hit in grep(root, rf"\b{re.escape(name)}\b"):
+            file_part = hit.split(":", 1)[0]
+            if file_part != target.name and file_part not in found:
+                found.append(file_part)
+        if len(found) >= limit:
+            break
+    return found[:limit]
+
+
 def planner(state: AgentState) -> dict:
     path = Path(state["file_path"])
     code = path.read_text(encoding="utf-8")
     print(f"[planner] read {path} ({len(code.splitlines())} lines)")
-    return {"code_content": code}
+
+    root = path.parent
+    related = _find_related_files(root, path, state["task_description"])
+    if related:
+        print(f"[planner] found related files: {', '.join(related)}")
+
+    return {"code_content": code, "related_files": related}
 
 
 def tester(state: AgentState) -> dict:
@@ -115,6 +136,13 @@ def coder(state: AgentState) -> dict:
         f"Source file to fix ({path.name}):\n{_block(state['code_content'])}",
         _collect_tests(path.parent, path.stem),
     ]
+    for rel in state["related_files"]:
+        rel_path = path.parent / rel
+        if rel_path.exists():
+            parts.append(
+                f"Related file {rel} (read-only, for context):\n"
+                f"{_block(rel_path.read_text(encoding='utf-8'))}"
+            )
     if state["execution_logs"]:
         parts.append(f"Output of the last test run:\n{_tail(state['execution_logs'])}")
     if state["diagnosis"]:
