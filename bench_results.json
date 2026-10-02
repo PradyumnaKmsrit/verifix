@@ -1,0 +1,80 @@
+[
+  {
+    "id": "add",
+    "single_shot": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 10.4
+    },
+    "full_loop": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 9.0
+    }
+  },
+  {
+    "id": "median",
+    "single_shot": {
+      "passed": false,
+      "retries": 0,
+      "seconds": 19.8
+    },
+    "full_loop": {
+      "passed": true,
+      "retries": 1,
+      "seconds": 66.7
+    }
+  },
+  {
+    "id": "discount",
+    "single_shot": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 5.3
+    },
+    "full_loop": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 10.3
+    }
+  },
+  {
+    "id": "bank_withdraw",
+    "single_shot": {
+      "passed": false,
+      "retries": 0,
+      "seconds": 8.5
+    },
+    "full_loop": {
+      "passed": false,
+      "retries": 3,
+      "seconds": 68.8
+    }
+  },
+  {
+    "id": "is_palindrome",
+    "single_shot": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 8.0
+    },
+    "full_loop": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 12.2
+    }
+  },
+  {
+    "id": "factorial",
+    "single_shot": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 6.7
+    },
+    "full_loop": {
+      "passed": true,
+      "retries": 0,
+      "seconds": 15.8
+    }
+  }
+]

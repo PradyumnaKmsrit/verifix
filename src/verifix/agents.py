@@ -62,7 +62,11 @@ def extract_code(text: str) -> str:
 
 
 def strip_echoed_tests(code: str, module: str) -> str:
-    """Drop top-level test functions and self-imports the model copied from the tests."""
+    """Drop top-level test functions and self-imports the model copied from the tests.
+
+    Returns an empty string if nothing but tests/imports remained -- the caller
+    must not treat that as valid source code.
+    """
     try:
         tree = ast.parse(code)
     except SyntaxError:
@@ -79,7 +83,20 @@ def strip_echoed_tests(code: str, module: str) -> str:
 
     kept = [line for n, line in enumerate(code.splitlines(), 1) if n not in drop]
     cleaned = "\n".join(kept).strip()
-    return cleaned + "\n" if cleaned else code
+    return cleaned + "\n" if cleaned else ""
+
+
+def _top_level_names(code: str) -> set[str]:
+    """Names of top-level functions and classes defined in a source file."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
 
 
 def _find_related_files(root: Path, target: Path, task: str, limit: int = 2) -> list[str]:
@@ -153,6 +170,20 @@ def coder(state: AgentState) -> dict:
         [("system", CODER_SYSTEM), ("human", "\n\n".join(parts))]
     )
     new_code = strip_echoed_tests(extract_code(reply.content), path.stem)
+
+    if not new_code.strip():
+        print("[coder] reply was test-only, keeping previous source unchanged")
+        new_code = state["code_content"]
+    else:
+        before = _top_level_names(state["code_content"])
+        after = _top_level_names(new_code)
+        if before and not (before & after):
+            print(
+                f"[coder] reply dropped expected definitions {sorted(before)}, "
+                "keeping previous source unchanged"
+            )
+            new_code = state["code_content"]
+
     path.write_text(new_code, encoding="utf-8")
     return {"code_content": new_code}
 
