@@ -5,6 +5,7 @@ import ast
 import re
 from pathlib import Path
 
+from verifix.events import emit
 from verifix.llm import get_llm
 from verifix.search import grep
 from verifix.state import AgentState
@@ -116,12 +117,12 @@ def _find_related_files(root: Path, target: Path, task: str, limit: int = 2) -> 
 def planner(state: AgentState) -> dict:
     path = Path(state["file_path"])
     code = path.read_text(encoding="utf-8")
-    print(f"[planner] read {path} ({len(code.splitlines())} lines)")
+    emit("planner", f"read {path} ({len(code.splitlines())} lines)")
 
     root = path.parent
     related = _find_related_files(root, path, state["task_description"])
     if related:
-        print(f"[planner] found related files: {', '.join(related)}")
+        emit("planner", f"found related files: {', '.join(related)}")
 
     return {"code_content": code, "related_files": related}
 
@@ -135,14 +136,14 @@ def tester(state: AgentState) -> dict:
             f"Source file ({path.name}):\n{_block(state['code_content'])}",
         ]
     )
-    print("[tester] writing a reproduction test")
+    emit("tester", "writing a reproduction test")
     reply = get_llm().invoke([("system", TESTER_SYSTEM), ("human", prompt)])
     test_code = extract_code(reply.content)
 
     test_path = path.parent / "test_reported_issue.py"
     header = f"from {path.stem} import *\n\n\n"
     test_path.write_text(header + test_code, encoding="utf-8")
-    print(f"[tester] wrote {test_path.name}")
+    emit("tester", f"wrote {test_path.name}")
     return {}
 
 
@@ -165,22 +166,23 @@ def coder(state: AgentState) -> dict:
     if state["diagnosis"]:
         parts.append(f"Diagnosis of the last failure:\n{state['diagnosis']}")
 
-    print(f"[coder] attempt {state['retries'] + 1}")
+    emit("coder", f"attempt {state['retries'] + 1}")
     reply = get_llm().invoke(
         [("system", CODER_SYSTEM), ("human", "\n\n".join(parts))]
     )
     new_code = strip_echoed_tests(extract_code(reply.content), path.stem)
 
     if not new_code.strip():
-        print("[coder] reply was test-only, keeping previous source unchanged")
+        emit("coder", "reply was test-only, keeping previous source unchanged")
         new_code = state["code_content"]
     else:
         before = _top_level_names(state["code_content"])
         after = _top_level_names(new_code)
         if before and not (before & after):
-            print(
-                f"[coder] reply dropped expected definitions {sorted(before)}, "
-                "keeping previous source unchanged"
+            emit(
+                "coder",
+                f"reply dropped expected definitions {sorted(before)}, "
+                "keeping previous source unchanged",
             )
             new_code = state["code_content"]
 
@@ -204,6 +206,9 @@ def reflector(state: AgentState) -> dict:
             f"Failing test output:\n{_tail(state['execution_logs'])}{stuck_note}",
         ]
     )
-    print("[reflector] analysing failure" + (" (stuck, forcing replan)" if state["stuck"] else ""))
+    emit(
+        "reflector",
+        "analysing failure" + (" (stuck, forcing replan)" if state["stuck"] else ""),
+    )
     reply = get_llm().invoke([("system", REFLECTOR_SYSTEM), ("human", prompt)])
     return {"diagnosis": reply.content.strip(), "retries": state["retries"] + 1}

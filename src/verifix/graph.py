@@ -5,6 +5,7 @@ from pathlib import Path
 from langgraph.graph import END, StateGraph
 
 from verifix.agents import coder, planner, reflector, tester
+from verifix.events import emit
 from verifix.sandbox import run_pytest
 from verifix.state import AgentState
 
@@ -18,7 +19,7 @@ def _signature(logs: str) -> str:
 def executor(state: AgentState) -> dict:
     workspace = str(Path(state["file_path"]).parent)
     result = run_pytest(workspace)
-    print(f"[executor] tests_passed={result.passed} exit_code={result.exit_code}")
+    emit("executor", f"tests_passed={result.passed} exit_code={result.exit_code}")
 
     if result.passed:
         return {"tests_passed": True, "execution_logs": result.logs}
@@ -27,7 +28,7 @@ def executor(state: AgentState) -> dict:
     seen = state["seen_failures"]
     stuck = sig in seen
     if stuck:
-        print("[executor] same failure as a previous attempt, flagging as stuck")
+        emit("executor", "same failure as a previous attempt, flagging as stuck")
     return {
         "tests_passed": False,
         "execution_logs": result.logs,
