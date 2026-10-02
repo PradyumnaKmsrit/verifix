@@ -1,11 +1,10 @@
-"""LangGraph pipeline for Verifix: planner -> coder -> executor -> reflector loop."""
+"""LangGraph pipeline: planner -> tester -> coder -> executor -> reflector loop."""
 
-import re
 from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
-from verifix.agents import coder, planner, reflector
+from verifix.agents import coder, planner, reflector, tester
 from verifix.sandbox import run_pytest
 from verifix.state import AgentState
 
@@ -46,15 +45,17 @@ def after_reflector(state: AgentState) -> str:
 
 
 def build_graph():
-    """Wire planner -> coder -> executor -> (reflector -> coder) loop."""
+    """Wire planner -> tester -> coder -> executor -> (reflector -> coder) loop."""
     graph = StateGraph(AgentState)
     graph.add_node("planner", planner)
+    graph.add_node("tester", tester)
     graph.add_node("coder", coder)
     graph.add_node("executor", executor)
     graph.add_node("reflector", reflector)
 
     graph.set_entry_point("planner")
-    graph.add_edge("planner", "coder")
+    graph.add_edge("planner", "tester")
+    graph.add_edge("tester", "coder")
     graph.add_edge("coder", "executor")
     graph.add_conditional_edges(
         "executor", after_executor, {"done": END, "reflect": "reflector"}

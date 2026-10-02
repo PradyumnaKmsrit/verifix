@@ -1,4 +1,5 @@
-"""Verifix agents: Planner gathers context, Coder proposes a fix, Reflector diagnoses."""
+"""Verifix agents: Planner gathers context, Tester writes a repro test,
+Coder proposes a fix, Reflector diagnoses failures."""
 
 import ast
 import re
@@ -22,6 +23,14 @@ REFLECTOR_SYSTEM = (
     "tests, and the failing test output. In two or three sentences, explain the "
     "root cause of the failure and what change would fix it. "
     "Do not write code blocks or the full corrected file."
+)
+
+TESTER_SYSTEM = (
+    "You write a single pytest test function that reproduces a described bug. "
+    "You will be given a task description and the current source file. Write "
+    "ONE test function, named test_reported_issue, that currently FAILS "
+    "because of the bug. Import only from the module shown. Reply with the "
+    f"test function inside a single {FENCE}python code block and nothing else."
 )
 
 
@@ -77,6 +86,26 @@ def planner(state: AgentState) -> dict:
     code = path.read_text(encoding="utf-8")
     print(f"[planner] read {path} ({len(code.splitlines())} lines)")
     return {"code_content": code}
+
+
+def tester(state: AgentState) -> dict:
+    path = Path(state["file_path"])
+    prompt = "\n\n".join(
+        [
+            f"Task: {state['task_description']}",
+            f"Module name to import from: {path.stem}",
+            f"Source file ({path.name}):\n{_block(state['code_content'])}",
+        ]
+    )
+    print("[tester] writing a reproduction test")
+    reply = get_llm().invoke([("system", TESTER_SYSTEM), ("human", prompt)])
+    test_code = extract_code(reply.content)
+
+    test_path = path.parent / "test_reported_issue.py"
+    header = f"from {path.stem} import *\n\n\n"
+    test_path.write_text(header + test_code, encoding="utf-8")
+    print(f"[tester] wrote {test_path.name}")
+    return {}
 
 
 def coder(state: AgentState) -> dict:
