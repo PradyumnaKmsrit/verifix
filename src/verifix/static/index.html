@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verifix</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --fail: #f85149; --mono: "Consolas", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
+    margin: 0; padding: 2rem; max-width: 900px; margin-inline: auto;
+  }
+  h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
+  label { display: block; font-size: 0.85rem; color: var(--dim); margin-bottom: 0.3rem; }
+  input, textarea {
+    width: 100%; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 0.6rem; font-family: inherit;
+    font-size: 0.9rem; margin-bottom: 1rem;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  button {
+    background: var(--accent); color: #0d1117; border: none; border-radius: 6px;
+    padding: 0.6rem 1.2rem; font-weight: 600; cursor: pointer; font-size: 0.9rem;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #timeline {
+    margin-top: 1.5rem; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel); padding: 1rem; min-height: 100px;
+  }
+  .event { display: flex; gap: 0.6rem; padding: 0.3rem 0; font-family: var(--mono); font-size: 0.85rem; }
+  .node { color: var(--accent); min-width: 80px; font-weight: 600; }
+  .msg { color: var(--text); }
+  #result { margin-top: 1rem; padding: 0.8rem 1rem; border-radius: 6px; font-weight: 600; display: none; }
+  #result.pass { background: rgba(63,185,80,0.15); color: var(--ok); display: block; }
+  #result.fail { background: rgba(248,81,73,0.15); color: var(--fail); display: block; }
+  #code-output { margin-top: 1rem; display: none; }
+  #code-output h2 { font-size: 0.95rem; margin: 1rem 0 0.4rem; color: var(--dim); }
+  pre {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem;
+    white-space: pre; line-height: 1.5;
+  }
+  .diff-add { color: var(--ok); }
+  .diff-del { color: var(--fail); }
+</style>
+</head>
+<body>
+  <h1>Verifix</h1>
+
+  <label for="file">File path (relative to the server's working directory)</label>
+  <input id="file" value="examples/median/median.py">
+
+  <label for="task">Task description</label>
+  <textarea id="task">Fix the median function so the tests pass</textarea>
+
+  <button id="run">Run Verifix</button>
+
+  <div id="timeline"></div>
+  <div id="result"></div>
+
+  <div id="code-output">
+    <h2>Diff (attempted change, regardless of outcome)</h2>
+    <pre id="diff-view"></pre>
+    <h2>Full attempted file</h2>
+    <pre id="code-view"></pre>
+  </div>
+
+<script>
+const runBtn = document.getElementById("run");
+const timeline = document.getElementById("timeline");
+const result = document.getElementById("result");
+const codeOutput = document.getElementById("code-output");
+const diffView = document.getElementById("diff-view");
+const codeView = document.getElementById("code-view");
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderDiff(diffText) {
+  if (!diffText.trim()) {
+    diffView.textContent = "(no changes were made)";
+    return;
+  }
+  const lines = diffText.split("\n").map((line) => {
+    const safe = escapeHtml(line);
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      return `<span class="diff-add">${safe}</span>`;
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      return `<span class="diff-del">${safe}</span>`;
+    }
+    return safe;
+  });
+  diffView.innerHTML = lines.join("\n");
+}
+
+runBtn.addEventListener("click", async () => {
+  timeline.innerHTML = "";
+  result.className = "";
+  result.textContent = "";
+  codeOutput.style.display = "none";
+  runBtn.disabled = true;
+
+  const body = JSON.stringify({
+    file_path: document.getElementById("file").value,
+    task: document.getElementById("task").value,
+  });
+
+  try {
+    const resp = await fetch("/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop();
+      for (const chunk of events) {
+        const lines = chunk.split(/\r?\n/);
+        const dataLine = lines.find((l) => l.startsWith("data:"));
+        if (!dataLine) continue;
+        const raw = dataLine.slice(5).trim();
+        if (!raw) continue;
+        try {
+          addEvent(JSON.parse(raw));
+        } catch (parseErr) {
+          console.error("Could not parse SSE data:", raw, parseErr);
+        }
+      }
+    }
+  } catch (err) {
+    addEvent({ node: "error", message: String(err) });
+    console.error(err);
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+function addEvent(data) {
+  if (data.node === "done") {
+    result.className = data.passed ? "pass" : "fail";
+    result.textContent = data.passed
+      ? `SUCCESS after ${data.retries} retries`
+      : `FAILED after ${data.retries} retries (original file restored on disk)`;
+
+    if (data.diff !== undefined) {
+      renderDiff(data.diff);
+      codeView.textContent = data.code || "(no code produced)";
+      codeOutput.style.display = "block";
+    }
+    return;
+  }
+  const row = document.createElement("div");
+  row.className = "event";
+  row.innerHTML = `<span class="node">[${data.node}]</span><span class="msg"></span>`;
+  row.querySelector(".msg").textContent = data.message;
+  timeline.appendChild(row);
+  timeline.scrollTop = timeline.scrollHeight;
+}
+</script>
+</body>
+</html>

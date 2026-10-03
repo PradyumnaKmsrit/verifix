@@ -99,6 +99,25 @@ def _top_level_names(code: str) -> set[str]:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef))
     }
 
+def _strip_self_imports(code: str, module: str) -> str:
+    """Remove any import of the target module from generated test code, since
+    the caller already prepends the correct import line."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+
+    drop: set[int] = set()
+    for node in tree.body:
+        is_plain_import = isinstance(node, ast.Import) and any(
+            alias.name == module for alias in node.names
+        )
+        is_from_import = isinstance(node, ast.ImportFrom) and node.module == module
+        if is_plain_import or is_from_import:
+            drop.update(range(node.lineno, node.end_lineno + 1))
+
+    kept = [line for n, line in enumerate(code.splitlines(), 1) if n not in drop]
+    return "\n".join(kept).strip() + "\n"
 
 def _find_related_files(root: Path, target: Path, task: str, limit: int = 2) -> list[str]:
     """Grep for function/class names mentioned in the task to find related files."""
@@ -126,7 +145,6 @@ def planner(state: AgentState) -> dict:
 
     return {"code_content": code, "related_files": related}
 
-
 def tester(state: AgentState) -> dict:
     path = Path(state["file_path"])
     prompt = "\n\n".join(
@@ -138,14 +156,18 @@ def tester(state: AgentState) -> dict:
     )
     emit("tester", "writing a reproduction test")
     reply = get_llm().invoke([("system", TESTER_SYSTEM), ("human", prompt)])
-    test_code = extract_code(reply.content)
+    test_code = _strip_self_imports(extract_code(reply.content), path.stem)
 
     test_path = path.parent / "test_reported_issue.py"
-    header = f"from {path.stem} import *\n\n\n"
-    test_path.write_text(header + test_code, encoding="utf-8")
+    names = sorted(_top_level_names(state["code_content"]))
+    import_line = (
+        f"from {path.stem} import {', '.join(names)}\n\n\n"
+        if names
+        else f"from {path.stem} import *\n\n\n"
+    )
+    test_path.write_text(import_line + test_code, encoding="utf-8")
     emit("tester", f"wrote {test_path.name}")
     return {}
-
 
 def coder(state: AgentState) -> dict:
     path = Path(state["file_path"])
